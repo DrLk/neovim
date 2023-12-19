@@ -1691,6 +1691,10 @@ void win_init(win_T *newp, win_T *oldp, int flags)
   newp->w_set_curswant = oldp->w_set_curswant;
   newp->w_topline = oldp->w_topline;
   newp->w_topfill = oldp->w_topfill;
+  newp->w_viewport_last_topline = oldp->w_viewport_last_topline;
+  newp->w_viewport_last_botline = oldp->w_viewport_last_botline;
+  newp->w_viewport_last_skipcol = oldp->w_viewport_last_skipcol;
+  newp->w_viewport_last_topfill = oldp->w_viewport_last_topfill;
   newp->w_leftcol = oldp->w_leftcol;
   newp->w_pcmark = oldp->w_pcmark;
   newp->w_prev_pcmark = oldp->w_prev_pcmark;
