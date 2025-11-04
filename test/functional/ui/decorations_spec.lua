@@ -3067,7 +3067,7 @@ describe('extmark decorations', function()
     ]])
   end)
 
-  it('redraws extmark that starts and ends outisde the screen', function()
+  it('redraws extmark that starts and ends outside the screen', function()
     local lines = vim.split(('1'):rep(20), '', { plain = true })
     api.nvim_buf_set_lines(0, 0, -1, true, lines)
     api.nvim_buf_set_extmark(0, ns, 0, 0, { hl_group = 'ErrorMsg', end_row = 19, end_col = 0 })
@@ -3097,27 +3097,29 @@ describe('decorations: inline virtual text', function()
     clear()
     screen = Screen.new(50, 3)
     screen:set_default_attr_ids {
-      [1] = {bold=true, foreground=Screen.colors.Blue};
-      [2] = {foreground = Screen.colors.Brown};
-      [3] = {bold = true, foreground = Screen.colors.SeaGreen};
-      [4] = {background = Screen.colors.Red1, foreground = Screen.colors.Gray100};
-      [5] = {background = Screen.colors.Red1, bold = true};
-      [6] = {foreground = Screen.colors.DarkCyan};
-      [7] = {background = Screen.colors.LightGrey, foreground = Screen.colors.Black};
-      [8] = {bold = true};
-      [9] = {background = Screen.colors.Plum1};
-      [10] = {foreground = Screen.colors.SlateBlue};
-      [11] = {blend = 30, background = Screen.colors.Red1};
-      [12] = {background = Screen.colors.Yellow};
-      [13] = {reverse = true};
-      [14] = {foreground = Screen.colors.SlateBlue, background = Screen.colors.LightMagenta};
-      [15] = {bold = true, reverse = true};
-      [16] = {foreground = Screen.colors.Red};
-      [17] = {background = Screen.colors.LightGrey, foreground = Screen.colors.DarkBlue};
-      [18] = {background = Screen.colors.LightGrey, foreground = Screen.colors.Red};
-      [19] = {background = Screen.colors.Yellow, foreground = Screen.colors.SlateBlue};
-      [20] = {background = Screen.colors.LightGrey, foreground = Screen.colors.SlateBlue};
-      [21] = {reverse = true, foreground = Screen.colors.SlateBlue}
+      [1] = { bold = true, foreground = Screen.colors.Blue },
+      [2] = { foreground = Screen.colors.Brown },
+      [3] = { bold = true, foreground = Screen.colors.SeaGreen },
+      [4] = { background = Screen.colors.Red1, foreground = Screen.colors.Gray100 },
+      [5] = { background = Screen.colors.Red1, bold = true },
+      [6] = { foreground = Screen.colors.DarkCyan },
+      [7] = { background = Screen.colors.LightGrey, foreground = Screen.colors.Black },
+      [8] = { bold = true },
+      [9] = { background = Screen.colors.Plum1 },
+      [10] = { foreground = Screen.colors.SlateBlue },
+      [11] = { blend = 30, background = Screen.colors.Red1 },
+      [12] = { background = Screen.colors.Yellow },
+      [13] = { reverse = true },
+      [14] = { foreground = Screen.colors.SlateBlue, background = Screen.colors.LightMagenta },
+      [15] = { bold = true, reverse = true },
+      [16] = { foreground = Screen.colors.Red },
+      [17] = { background = Screen.colors.LightGrey, foreground = Screen.colors.DarkBlue },
+      [18] = { background = Screen.colors.LightGrey, foreground = Screen.colors.Red },
+      [19] = { background = Screen.colors.Yellow, foreground = Screen.colors.SlateBlue },
+      [20] = { background = Screen.colors.LightGrey, foreground = Screen.colors.SlateBlue },
+      [21] = { reverse = true, foreground = Screen.colors.SlateBlue },
+      [22] = { background = Screen.colors.Gray90 },
+      [23] = { background = Screen.colors.Gray90, foreground = Screen.colors.Blue, bold = true },
     }
 
     ns = api.nvim_create_namespace 'test'
@@ -4889,6 +4891,206 @@ describe('decorations: inline virtual text', function()
     screen:expect([[
       bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb^b  |
       {1:~                                                 }|*6
+                                                        |
+    ]])
+  end)
+
+  it('line size is correct with inline virt text at EOL and showbreak', function()
+    screen:try_resize(50, 8)
+    insert(('0123456789'):rep(5) .. '\nfoo\nbar')
+    api.nvim_buf_set_extmark(0, ns, 0, 50, { virt_text = { { ('x'):rep(145), 'ErrorMsg' } }, virt_text_pos = 'inline' })
+
+    command([[set cursorline scrolloff=0 showbreak=>\  smoothscroll]])
+    screen:expect([[
+      01234567890123456789012345678901234567890123456789|
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*3
+      {1:> }{4:x}                                               |
+      foo                                               |
+      {22:ba^r                                               }|
+                                                        |
+    ]])
+    eq(5, api.nvim_win_text_height(0, { start_row = 0, end_row = 0 }).all)
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*3
+      {1:> }{4:x}                                               |
+      foo                                               |
+      {22:ba^r                                               }|
+      {1:~                                                 }|
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*2
+      {1:> }{4:x}                                               |
+      foo                                               |
+      {22:ba^r                                               }|
+      {1:~                                                 }|*2
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|
+      {1:> }{4:x}                                               |
+      foo                                               |
+      {22:ba^r                                               }|
+      {1:~                                                 }|*3
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:x}                                               |
+      foo                                               |
+      {22:ba^r                                               }|
+      {1:~                                                 }|*4
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      foo                                               |
+      {22:ba^r                                               }|
+      {1:~                                                 }|*5
+                                                        |
+    ]])
+
+    feed('gg$xG$')
+    screen:expect([[
+      0123456789012345678901234567890123456789012345678{4:x}|
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*3
+      foo                                               |
+      {22:ba^r                                               }|
+      {1:~                                                 }|
+                                                        |
+    ]])
+    eq(4, api.nvim_win_text_height(0, { start_row = 0, end_row = 0 }).all)
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*3
+      foo                                               |
+      {22:ba^r                                               }|
+      {1:~                                                 }|*2
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*2
+      foo                                               |
+      {22:ba^r                                               }|
+      {1:~                                                 }|*3
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|
+      foo                                               |
+      {22:ba^r                                               }|
+      {1:~                                                 }|*4
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      foo                                               |
+      {22:ba^r                                               }|
+      {1:~                                                 }|*5
+                                                        |
+    ]])
+
+    feed('zb')
+    command('set list listchars=eol:$')
+    screen:expect([[
+      0123456789012345678901234567890123456789012345678{4:x}|
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*3
+      {1:> $}                                               |
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+                                                        |
+    ]])
+    eq(5, api.nvim_win_text_height(0, { start_row = 0, end_row = 0 }).all)
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*3
+      {1:> $}                                               |
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+      {1:~                                                 }|
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*2
+      {1:> $}                                               |
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+      {1:~                                                 }|*2
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|
+      {1:> $}                                               |
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+      {1:~                                                 }|*3
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      {1:> $}                                               |
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+      {1:~                                                 }|*4
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+      {1:~                                                 }|*5
+                                                        |
+    ]])
+
+    feed('gg$xG$')
+    screen:expect([[
+      012345678901234567890123456789012345678901234567{4:xx}|
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*2
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}{1:$}|
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+      {1:~                                                 }|
+                                                        |
+    ]])
+    eq(4, api.nvim_win_text_height(0, { start_row = 0, end_row = 0 }).all)
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|*2
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}{1:$}|
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+      {1:~                                                 }|*2
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}|
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}{1:$}|
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+      {1:~                                                 }|*3
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      {1:> }{4:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}{1:$}|
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+      {1:~                                                 }|*4
+                                                        |
+    ]])
+    feed('<C-E>')
+    screen:expect([[
+      foo{1:$}                                              |
+      {22:ba^r}{23:$}{22:                                              }|
+      {1:~                                                 }|*5
                                                         |
     ]])
   end)

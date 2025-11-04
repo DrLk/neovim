@@ -1940,7 +1940,6 @@ static bool skip_cmd(const exarg_T *eap)
     case CMD_throw:
     case CMD_tilde:
     case CMD_topleft:
-    case CMD_trust:
     case CMD_unlet:
     case CMD_unlockvar:
     case CMD_verbose:
@@ -5935,7 +5934,7 @@ static void ex_read(exarg_T *eap)
         lnum = 1;
       }
       if (*ml_get(lnum) == NUL && u_savedel(lnum, 1) == OK) {
-        ml_delete(lnum, false);
+        ml_delete(lnum);
         if (curwin->w_cursor.lnum > 1
             && curwin->w_cursor.lnum >= lnum) {
           curwin->w_cursor.lnum--;

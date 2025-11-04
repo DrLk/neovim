@@ -1937,7 +1937,9 @@ static void calculate_topfill_and_topline(const int fromidx, const int toidx, co
   virtual_lines_passed -= from_topfill;
 
   // count the same amount of virtual lines in the toidx buffer
-  int curlinenum_to = thistopdiff->df_lnum[toidx];
+  int curlinenum_to
+    = thistopdiff != NULL  // this should not be null, but just for safety
+      ? thistopdiff->df_lnum[toidx] : 1;
   int linesfiller = 0;
   count_filler_lines_and_topline(&curlinenum_to, &linesfiller,
                                  thistopdiff, toidx, virtual_lines_passed);
@@ -2343,7 +2345,6 @@ static int diff_cmp(char *s1, char *s2)
 void diff_set_topline(win_T *fromwin, win_T *towin)
 {
   buf_T *frombuf = fromwin->w_buffer;
-  linenr_T lnum = fromwin->w_topline;
 
   int fromidx = diff_buf_idx(frombuf, curtab);
   if (fromidx == DB_COUNT) {
@@ -2355,6 +2356,7 @@ void diff_set_topline(win_T *fromwin, win_T *towin)
     // update after a big change
     ex_diffupdate(NULL);
   }
+  linenr_T lnum = fromwin->w_topline;
   towin->w_topfill = 0;
 
   // search for a change that includes "lnum" in the list of diffblocks.
@@ -3073,7 +3075,7 @@ static void diffgetput(const int addr_count, const int idx_cur, const int idx_fr
       for (int i = 0; i < count; i++) {
         // remember deleting the last line of the buffer
         buf_empty = curbuf->b_ml.ml_line_count == 1;
-        if (ml_delete(lnum, false) == OK) {
+        if (ml_delete(lnum) == OK) {
           added--;
         }
       }
@@ -3094,7 +3096,7 @@ static void diffgetput(const int addr_count, const int idx_cur, const int idx_fr
           // which results in inaccurate reporting of the byte count of
           // previous contents in buffer-update events.
           buf_empty = false;
-          ml_delete(2, false);
+          ml_delete(2);
         }
       }
       linenr_T new_count = dp->df_count[idx_to] + added;

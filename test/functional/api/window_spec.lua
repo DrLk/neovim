@@ -1930,6 +1930,31 @@ describe('API/win', function()
         })
       )
     end)
+
+    it('respects requested size for large splits', function()
+      command('vsplit')
+      local win = api.nvim_open_win(0, false, { win = -1, split = 'right', width = 38 })
+      eq(38, api.nvim_win_get_width(win))
+
+      -- No zero-sized windows (e.g: from skipping forced equalization in win_split_ins) if
+      -- requesting a chonky window; that could lead to crashes!
+      api.nvim_open_win(0, false, { win = -1, split = 'right', width = 9999 })
+      eq({ 1, 1, 1, 74 }, eval("range(1, winnr('$'))->map({_, nr -> winwidth(nr)})"))
+
+      command('split')
+      win = api.nvim_open_win(0, false, { win = 0, split = 'below', height = 10 })
+      eq(10, api.nvim_win_get_height(win))
+
+      -- Still defaults to half-sized when no size was specified.
+      command('only')
+      eq(80, api.nvim_win_get_width(0))
+      api.nvim_open_win(0, true, { split = 'right' })
+      eq(40, api.nvim_win_get_width(0))
+
+      eq(22, api.nvim_win_get_height(0))
+      api.nvim_open_win(0, true, { split = 'below' })
+      eq(11, api.nvim_win_get_height(0))
+    end)
   end)
 
   describe('set_config', function()
@@ -2995,6 +3020,59 @@ describe('API/win', function()
         assert_alive()
         eq({ { 'OLD_FOOTER' } }, api.nvim_win_get_config(win).footer)
       end)
+    end)
+
+    it('cannot split from a float', function()
+      local win = api.nvim_get_current_win()
+      local float_win = api.nvim_open_win(0, true, {
+        relative = 'editor',
+        width = 10,
+        height = 10,
+        row = 10,
+        col = 10,
+      })
+      eq(
+        'Cannot split a floating window',
+        pcall_err(api.nvim_win_set_config, win, { win = float_win, split = 'right' })
+      )
+      eq(
+        'Cannot split a floating window',
+        pcall_err(api.nvim_win_set_config, win, { win = 0, split = 'right' })
+      )
+    end)
+
+    it('cannot move autocmd window between tabpages', function()
+      local win_type, split_ok, err = exec_lua(function()
+        local other_tp_win = vim.api.nvim_get_current_win()
+        vim.cmd.tabnew()
+
+        local win_type, split_ok, err
+        vim.api.nvim_buf_call(vim.api.nvim_create_buf(true, true), function()
+          win_type = vim.fn.win_gettype()
+          split_ok, err =
+            pcall(vim.api.nvim_win_set_config, 0, { win = other_tp_win, split = 'right' })
+        end)
+        return win_type, split_ok, err
+      end)
+      eq('autocmd', win_type)
+      eq({ false, 'Cannot move autocmd window to another tabpage' }, { split_ok, err })
+    end)
+
+    it('cannot move cmdwin between tabpages', function()
+      local other_tp_win = api.nvim_get_current_win()
+      command('tabnew')
+      local old_curwin = api.nvim_get_current_win()
+      feed('q:')
+      eq('command', fn.win_gettype())
+      eq(
+        'E11: Invalid in command-line window; <CR> executes, CTRL-C quits',
+        pcall_err(api.nvim_win_set_config, 0, { win = other_tp_win, split = 'right' })
+      )
+      -- Shouldn't move the old curwin from before we entered the cmdwin either.
+      eq(
+        'E11: Invalid in command-line window; <CR> executes, CTRL-C quits',
+        pcall_err(api.nvim_win_set_config, old_curwin, { win = other_tp_win, split = 'right' })
+      )
     end)
   end)
 end)

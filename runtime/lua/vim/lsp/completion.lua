@@ -503,7 +503,7 @@ local function trigger(bufnr, clients, ctx)
       return
     end
 
-    local matches = {}
+    local matches --[[@type table]] = vim.fn.complete_info({ 'items' })['items']
     local server_start_boundary --- @type integer?
     for client_id, response in pairs(responses) do
       local client = lsp.get_client_by_id(client_id)
@@ -571,7 +571,10 @@ local function on_insert_char_pre(handle)
 
   local char = api.nvim_get_vvar('char')
   local matched_clients = handle.triggers[char]
-  if not completion_timer and matched_clients then
+  -- Discard pending trigger char, complete the "latest" one.
+  -- Can happen if a mapping inputs multiple trigger chars simultaneously.
+  reset_timer()
+  if matched_clients then
     completion_timer = assert(vim.uv.new_timer())
     completion_timer:start(25, 0, function()
       reset_timer()
