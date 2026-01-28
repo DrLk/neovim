@@ -141,7 +141,7 @@ endif()
 # version string, else they are combined with the result of `git describe`.
 set(NVIM_VERSION_MAJOR 0)
 set(NVIM_VERSION_MINOR 11)
-set(NVIM_VERSION_PATCH 5)
+set(NVIM_VERSION_PATCH 6)
 set(NVIM_VERSION_PRERELEASE "") # for package maintainers
 
 # API level
@@ -151,8 +151,8 @@ set(NVIM_API_PRERELEASE false)
 
 # We _want_ assertions in RelWithDebInfo build-type.
 if(CMAKE_C_FLAGS_RELWITHDEBINFO MATCHES DNDEBUG)
-  string(REPLACE "-DNDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
-  string(REPLACE "/DNDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
+  string(REPLACE "-DNDEBUG" "-DRELDEBUG" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
+  string(REPLACE "/DNDEBUG" "/DRELDEBUG" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
   string(REPLACE "  " " " CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}") # Remove duplicate whitespace
 endif()
 
@@ -288,6 +288,8 @@ add_custom_target(nvim ALL)
 add_dependencies(nvim nvim_bin nvim_runtime_deps nvim_runtime)
 
 add_subdirectory(src/nvim)
+add_subdirectory(src/tee)
+add_subdirectory(src/xxd)
 add_subdirectory(cmake.config)
 add_subdirectory(runtime)
 add_subdirectory(test)

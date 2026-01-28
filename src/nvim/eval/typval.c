@@ -1287,12 +1287,8 @@ static int item_compare2(const void *s1, const void *s2, bool keep_zero)
     res = ITEM_COMPARE_FAIL;
     sortinfo->item_compare_func_err = true;
   } else {
-    res = (int)tv_get_number_chk(&rettv, &sortinfo->item_compare_func_err);
-    if (res > 0) {
-      res = 1;
-    } else if (res < 0) {
-      res = -1;
-    }
+    varnumber_T n = tv_get_number_chk(&rettv, &sortinfo->item_compare_func_err);
+    res = (n > 0) ? 1 : (n < 0) ? -1 : 0;
   }
   if (sortinfo->item_compare_func_err) {
     res = ITEM_COMPARE_FAIL;  // return value has wrong type
@@ -4239,7 +4235,7 @@ linenr_T tv_get_lnum(const typval_T *const tv)
   if (lnum <= 0 && did_emsg_before == did_emsg && tv->v_type != VAR_NUMBER) {
     int fnum;
     // No valid number, try using same function as line() does.
-    pos_T *const fp = var2fpos(tv, true, &fnum, false);
+    pos_T *const fp = var2fpos(tv, true, &fnum, false, curwin);
     if (fp != NULL) {
       lnum = fp->lnum;
     }

@@ -1878,6 +1878,7 @@ void do_wqall(exarg_T *eap)
 {
   int error = 0;
   int save_forceit = eap->forceit;
+  bool save_exiting = exiting;
 
   if (eap->cmdidx == CMD_xall || eap->cmdidx == CMD_wqall) {
     if (before_quit_all(eap) == FAIL) {
@@ -1887,10 +1888,12 @@ void do_wqall(exarg_T *eap)
   }
 
   FOR_ALL_BUFFERS(buf) {
-    if (exiting
+    if (exiting && !eap->forceit
         && buf->terminal
+        // TODO(zeertzjq): this always returns false for nvim_open_term() terminals.
+        // Use terminal_running() instead?
         && channel_job_running((uint64_t)buf->b_p_channel)) {
-      no_write_message_nobang(buf);
+      no_write_message_buf(buf);
       error++;
     } else if (!bufIsChanged(buf) || bt_dontwrite(buf)) {
       continue;
@@ -1927,7 +1930,7 @@ void do_wqall(exarg_T *eap)
     if (!error) {
       getout(0);                // exit Vim
     }
-    not_exiting();
+    not_exiting(save_exiting);
   }
 }
 
@@ -2381,7 +2384,10 @@ int do_ecmd(int fnum, char *ffname, char *sfname, exarg_T *eap, linenr_T newlnum
         // oldwin->w_buffer to NULL.
         u_sync(false);
         const bool did_decrement
-          = close_buffer(oldwin, curbuf, (flags & ECMD_HIDE) || curbuf->terminal ? 0 : DOBUF_UNLOAD,
+          = close_buffer(oldwin, curbuf,
+                         (flags & ECMD_HIDE)
+                         || (curbuf->terminal && terminal_running(curbuf->terminal))
+                         ? 0 : DOBUF_UNLOAD,
                          false, false);
 
         // Autocommands may have closed the window.
@@ -3552,6 +3558,25 @@ static int do_sub(exarg_T *eap, const proftime_T timeout, const int cmdpreview_n
       bool skip_match = false;
       linenr_T sub_firstlnum;           // nr of first sub line
 
+      // Track where substitutions started (set once per line).
+      linenr_T lnum_start = 0;
+
+      // Track per-line data for each match.
+      // Will be sent as a batch to `extmark_splice` after the substitution is done.
+      typedef struct {
+        int start_col;         // Position in new text where replacement goes
+        lpos_T start;          // Match start position in original text
+        lpos_T end;            // Match end position in original text
+        int matchcols;         // Columns deleted from original text
+        bcount_t matchbytes;   // Bytes deleted from original text
+        int subcols;           // Columns in replacement text
+        bcount_t subbytes;     // Bytes in replacement text
+        linenr_T lnum_before;  // Line number before this substitution
+        linenr_T lnum_after;   // Line number after this substitution
+      } LineData;
+
+      kvec_t(LineData) line_matches = KV_INITIAL_VALUE;
+
       // The new text is build up step by step, to avoid too much
       // copying.  There are these pieces:
       // sub_firstline  The old text, unmodified.
@@ -3903,7 +3928,7 @@ static int do_sub(exarg_T *eap, const proftime_T timeout, const int cmdpreview_n
         // 3. Substitute the string. During 'inccommand' preview only do this if
         //    there is a replace pattern.
         if (cmdpreview_ns <= 0 || has_second_delim) {
-          linenr_T lnum_start = lnum;  // save the start lnum
+          lnum_start = lnum;  // save the start lnum
           int save_ma = curbuf->b_p_ma;
           int save_sandbox = sandbox;
           if (subflags.do_count) {
@@ -3993,6 +4018,9 @@ static int do_sub(exarg_T *eap, const proftime_T timeout, const int cmdpreview_n
           }
           replaced_bytes += end.col - start.col;
 
+          // Save the line number before processing newlines.
+          linenr_T lnum_before_newlines = lnum;
+
           // Now the trick is to replace CTRL-M chars with a real line
           // break.  This would make it impossible to insert a CTRL-M in
           // the text.  The line break can be avoided by preceding the
@@ -4044,9 +4072,18 @@ static int do_sub(exarg_T *eap, const proftime_T timeout, const int cmdpreview_n
             u_save_cursor();
             did_save = true;
           }
-          extmark_splice(curbuf, (int)lnum_start - 1, start_col,
-                         end.lnum - start.lnum, matchcols, replaced_bytes,
-                         lnum - lnum_start, subcols, sublen - 1, kExtmarkUndo);
+
+          // Store extmark data for this match.
+          LineData *data = kv_pushp(line_matches);
+          data->start_col = start_col;
+          data->start = start;
+          data->end = end;
+          data->matchcols = matchcols;
+          data->matchbytes = replaced_bytes;
+          data->subcols = subcols;
+          data->subbytes = sublen - 1;
+          data->lnum_before = lnum_before_newlines;
+          data->lnum_after = lnum;
         }
 
         // 4. If subflags.do_all is set, find next match.
@@ -4096,6 +4133,21 @@ skip:
               break;
             }
             ml_replace(lnum, new_start, true);
+
+            // Call extmark_splice for each match on this line.
+            for (size_t match_idx = 0; match_idx < kv_size(line_matches); match_idx++) {
+              LineData *match = &kv_A(line_matches, match_idx);
+
+              extmark_splice(curbuf, (int)match->lnum_before - 1, match->start_col,
+                             match->end.lnum - match->start.lnum, match->matchcols,
+                             match->matchbytes,
+                             match->lnum_after - match->lnum_before,
+                             match->subcols,
+                             match->subbytes, kExtmarkUndo);
+            }
+
+            // Reset the match data for the next line.
+            kv_size(line_matches) = 0;
 
             if (nmatch_tl > 0) {
               // Matched lines have now been substituted and are
@@ -4192,6 +4244,7 @@ skip:
       }
       xfree(new_start);              // for when substitute was cancelled
       XFREE_CLEAR(sub_firstline);    // free the copy of the original line
+      kv_destroy(line_matches);      // clean up match data
     }
 
     line_breakcheck();

@@ -427,7 +427,8 @@ local function get_page(path, silent)
   if localfile_arg == nil then
     local mpath = get_path('man')
     -- Check for -l support.
-    localfile_arg = (mpath and system({ 'man', '-l', mpath }, true) or '') ~= ''
+    localfile_arg = (mpath and system({ 'man', '-l', mpath }, true, { MANPAGER = 'cat' }) or '')
+      ~= ''
   end
 
   local cmd = localfile_arg and { 'man', '-l', path } or { 'man', path }
@@ -794,7 +795,7 @@ function M.show_toc()
 
   local lnum = 2
   local last_line = fn.line('$') - 1
-  while lnum and lnum < last_line do
+  while lnum > 0 and lnum < last_line do
     local text = fn.getline(lnum)
     if text:match('^%s+[-+]%S') or text:match('^   %S') or text:match('^%S') then
       toc[#toc + 1] = {

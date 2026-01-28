@@ -789,6 +789,46 @@ func Test_BufUnload_close_other()
   call Run_test_BufUnload_close_other('setlocal bufhidden=wipe')
 endfunc
 
+func Run_test_BufUnload_tabonly(first_cmd)
+  exe a:first_cmd
+  tabnew Xa
+  setlocal bufhidden=wipe
+  tabprevious
+  autocmd BufWinLeave Xa ++once tabnext
+  autocmd BufUnload Xa ++once tabonly
+  tabonly
+
+  %bwipe!
+endfunc
+
+func Test_BufUnload_tabonly()
+  " This used to dereference a NULL curbuf.
+  call Run_test_BufUnload_tabonly('setlocal bufhidden=hide')
+  " This used to dereference a NULL firstbuf.
+  call Run_test_BufUnload_tabonly('setlocal bufhidden=wipe')
+endfunc
+
+func Run_test_BufUnload_tabonly_nested(second_autocmd)
+  file Xa
+  tabnew Xb
+  setlocal bufhidden=wipe
+  tabnew Xc
+  setlocal bufhidden=wipe
+  autocmd BufUnload Xb ++once ++nested bwipe! Xa
+  exe $'autocmd BufUnload Xa ++once ++nested {a:second_autocmd}'
+  autocmd BufWinLeave Xc ++once tabnext
+  tabfirst
+  2tabclose
+
+  %bwipe!
+endfunc
+
+func Test_BufUnload_tabonly_nested()
+  " These used to cause heap-use-after-free.
+  call Run_test_BufUnload_tabonly_nested('tabonly')
+  call Run_test_BufUnload_tabonly_nested('tabonly | tabprevious')
+endfunc
+
 func s:AddAnAutocmd()
   augroup vimBarTest
     au BufReadCmd * echo 'hello'
@@ -2117,7 +2157,7 @@ func Test_bufunload_all()
     endfunc
     au BufUnload * call UnloadAllBufs()
     au VimLeave * call writefile(['Test Finished'], 'Xout')
-    set nohidden
+    set nohidden  " Accommodate Nvim default
     edit Xxx1
     split Xxx2
     q
@@ -3376,7 +3416,7 @@ func Test_BufReadPre_changebuf()
   close!
 endfunc
 
-" Test for BufWipeouti autocmd changing the current buffer when reading a file
+" Test for BufWipeout autocmd changing the current buffer when reading a file
 " in an empty buffer with 'f' flag in 'cpo'
 func Test_BufDelete_changebuf()
   new
@@ -3659,6 +3699,29 @@ func Test_bufwipeout_changes_window()
 
   unlet g:window_id
   au! BufWipeout
+  %bwipe!
+endfunc
+
+func Test_autocmd_prevent_buf_wipe()
+  " Xa must be the first buffer so that win_close_othertab() puts it in
+  " another window, which causes wiping the buffer to fail.
+  %bwipe!
+
+  file Xa
+  call setline(1, 'foo')
+  setlocal bufhidden=wipe
+  tabnew Xb
+  setlocal bufhidden=wipe
+  autocmd BufUnload Xa ++once ++nested tabonly
+  autocmd BufWinLeave Xb ++once tabnext
+  tabfirst
+
+  edit! Xc
+  call assert_equal('Xc', bufname('%'))
+  tabnext
+  call assert_equal('Xa', bufname('%'))
+  call assert_equal("\n\"Xa\" --No lines in buffer--", execute('file'))
+
   %bwipe!
 endfunc
 

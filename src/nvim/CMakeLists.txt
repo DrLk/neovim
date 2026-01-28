@@ -93,7 +93,7 @@ if(NOT MSVC)
 endif()
 
 # -fstack-protector breaks Mingw-w64 builds
-if(NOT MINGW)
+if(NOT MINGW AND NOT CMAKE_SYSTEM_NAME STREQUAL "Haiku")
   check_c_compiler_flag(-fstack-protector-strong HAS_FSTACK_PROTECTOR_STRONG_FLAG)
   if(HAS_FSTACK_PROTECTOR_STRONG_FLAG)
     target_compile_options(main_lib INTERFACE -fstack-protector-strong)
@@ -145,7 +145,10 @@ endif()
 # Platform specific options
 if(UNIX)
   target_link_libraries(main_lib INTERFACE m)
-  if (NOT CMAKE_SYSTEM_NAME STREQUAL "SunOS")
+  if (CMAKE_SYSTEM_NAME STREQUAL "Haiku")
+    target_link_libraries(main_lib INTERFACE bsd)
+    target_link_libraries(nvim_bin PRIVATE -lnetwork)
+  elseif (NOT CMAKE_SYSTEM_NAME STREQUAL "SunOS")
     target_link_libraries(main_lib INTERFACE util)
   endif()
 endif()
@@ -447,6 +450,10 @@ foreach(hfile ${NVIM_HEADERS})
 endforeach()
 
 list(APPEND LINT_NVIM_SOURCES ${NVIM_SOURCES} ${NVIM_HEADERS})
+list(APPEND LINT_NVIM_SOURCES
+  ${PROJECT_SOURCE_DIR}/src/tee/tee.c
+  ${PROJECT_SOURCE_DIR}/src/xxd/xxd.c
+)
 
 # Log level (NVIM_LOG_DEBUG in log.h)
 if(CI_BUILD)
@@ -846,7 +853,7 @@ target_link_libraries(libnvim PRIVATE main_lib PUBLIC libuv)
 
 find_program(CLANG_TIDY_PRG clang-tidy)
 mark_as_advanced(CLANG_TIDY_PRG)
-set(EXCLUDE_CLANG_TIDY typval_encode.c.h ui_events.in.h)
+set(EXCLUDE_CLANG_TIDY typval_encode.c.h ui_events.in.h xxd/xxd.c)
 if(WIN32)
   list(APPEND EXCLUDE_CLANG_TIDY
     os/pty_proc_unix.h
@@ -908,7 +915,8 @@ add_glob_target(
   FLAGS --output=${LINT_OUTPUT_FORMAT}
   FILES ${LINT_NVIM_SOURCES}
   EXCLUDE
-    tui/terminfo_defs.h)
+    tui/terminfo_defs.h
+    xxd/xxd.c)
 
 set(UNCRUSTIFY_PRG ${DEPS_BIN_DIR}/uncrustify)
 set(UNCRUSTIFY_CONFIG ${PROJECT_SOURCE_DIR}/src/uncrustify.cfg)

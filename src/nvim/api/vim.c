@@ -146,6 +146,11 @@ Dict nvim_get_hl(Integer ns_id, Dict(get_highlight) *opts, Arena *arena, Error *
 /// @param val   Highlight definition map, accepts the following keys:
 ///                - fg: color name or "#RRGGBB", see note.
 ///                - bg: color name or "#RRGGBB", see note.
+///                - fg_indexed: boolean
+///                  When true, fg is a terminal palette index (0-255).
+///                  Default is false.
+///                - bg_indexed: boolean
+///                  Same as fg_indexed, but for background color.
 ///                - sp: color name or "#RRGGBB"
 ///                - blend: integer between 0 and 100
 ///                - bold: boolean
@@ -1016,6 +1021,15 @@ Integer nvim_open_term(Buffer buffer, Dict(open_term) *opts, Error *err)
   if (buf == cmdwin_buf) {
     api_set_error(err, kErrorTypeException, "%s", e_cmdwin);
     return 0;
+  }
+
+  if (buf->terminal) {
+    if (terminal_running(buf->terminal)) {
+      api_set_error(err, kErrorTypeException,
+                    "Terminal already connected to buffer %d", buf->handle);
+      return 0;
+    }
+    buf_close_terminal(buf);
   }
 
   LuaRef cb = LUA_NOREF;
