@@ -943,7 +943,7 @@ void ui_ext_win_viewport(win_T *wp)
     last_botline = MIN(last_botline, line_count);
     if (cur_topline < last_topline
         || (cur_topline == last_topline && wp->w_skipcol < last_skipcol)) {
-      if (last_topline > 0 && cur_botline < last_topline) {
+      if (cur_botline < last_topline) {
         // Scrolling too many lines: only give an approximate "scroll_delta".
         delta -= win_text_height(wp, cur_topline, wp->w_skipcol, cur_botline, 0, NULL);
         delta -= last_topline - cur_botline;
@@ -952,7 +952,7 @@ void ui_ext_win_viewport(win_T *wp)
       }
     } else if (cur_topline > last_topline
                || (cur_topline == last_topline && wp->w_skipcol > last_skipcol)) {
-      if (last_botline > 0 && cur_topline > last_botline) {
+      if (cur_topline > last_botline) {
         // Scrolling too many lines: only give an approximate "scroll_delta".
         delta += win_text_height(wp, last_topline, last_skipcol, last_botline, 0, NULL);
         delta += cur_topline - last_botline;
