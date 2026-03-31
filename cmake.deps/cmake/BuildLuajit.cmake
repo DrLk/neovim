@@ -27,11 +27,17 @@ if(CMAKE_SYSTEM_NAME MATCHES "OpenBSD")
 else()
   set(AMD64_ABI "")
 endif()
+if(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo|MinSizeRel)$")
+  set(LUAJIT_LTO_FLAGS CFLAGS+=-flto LDFLAGS+=-flto)
+else()
+  set(LUAJIT_LTO_FLAGS "")
+endif()
 set(BUILDCMD_UNIX ${MAKE_PRG} -j CFLAGS=-fPIC
                               CFLAGS+=-DLUA_USE_APICHECK
                               CFLAGS+=-funwind-tables
                               ${NO_STACK_CHECK}
                               ${AMD64_ABI}
+                              ${LUAJIT_LTO_FLAGS}
                               CCDEBUG+=-g
                               Q=)
 
