@@ -288,17 +288,17 @@ do
     )
   end
 
+  --- Execute a command and print errors without a stacktrace.
+  --- @param opts vim.api.keyset.cmd Arguments to |nvim_cmd()|
+  local function cmd(opts)
+    local ok, err = pcall(vim.api.nvim_cmd, opts, {})
+    if not ok then
+      vim.api.nvim_echo({ { err:sub(#'Vim:' + 1) } }, true, { err = true })
+    end
+  end
+
   --- vim-unimpaired style mappings. See: https://github.com/tpope/vim-unimpaired
   do
-    --- Execute a command and print errors without a stacktrace.
-    --- @param opts table Arguments to |nvim_cmd()|
-    local function cmd(opts)
-      local ok, err = pcall(vim.api.nvim_cmd, opts, {})
-      if not ok then
-        vim.api.nvim_echo({ { err:sub(#'Vim:' + 1) } }, true, { err = true })
-      end
-    end
-
     -- Quickfix mappings
     vim.keymap.set('n', '[q', function()
       cmd({ cmd = 'cprevious', count = vim.v.count1 })
@@ -617,7 +617,7 @@ do
         -- TermClose may be queued before TermOpen if process exits before `terminal_open` is called.
         -- Don't display the msg now, let TermOpen display it.
         vim.api.nvim_create_autocmd('TermOpen', {
-          buffer = ev.buf,
+          buf = ev.buf,
           once = true,
           callback = function()
             set_terminal_exitmsg(ev.buf, msg, pos)
@@ -773,7 +773,8 @@ do
       vim.v.swapchoice = 'e' -- Choose "(E)dit".
       vim.notify(
         ('W325: Ignoring swapfile from Nvim process %d'):format(info.pid),
-        vim.log.levels.WARN
+        vim.log.levels.WARN,
+        { _truncate = true }
       )
     end,
   })
@@ -984,7 +985,8 @@ do
       then
         vim.notify(
           'defaults.lua: Did not detect DSR response from terminal. This results in a slower startup time.',
-          vim.log.levels.WARN
+          vim.log.levels.WARN,
+          { _truncate = true }
         )
       end
     end

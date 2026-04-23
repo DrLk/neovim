@@ -23,7 +23,6 @@ local ok = t.ok
 local read_file = t.read_file
 local fn = n.fn
 local api = n.api
-local is_ci = t.is_ci
 local is_os = t.is_os
 local new_pipename = n.new_pipename
 local set_session = n.set_session
@@ -208,8 +207,72 @@ describe('TUI :restart', function()
   before_each(n.clear)
   after_each(n.check_close)
 
+  ---@param exp boolean Restart expected
+  ---@param sess table Session
+  ---@param addr string
+  local function assert_restarted(exp, sess, addr)
+    local s = sess
+    retry(nil, 5000, function()
+      if exp then
+        s:close()
+        s = n.connect(addr)
+      end
+
+      -- Cheesy but reliable: :restart drops "-- [files…]", so empty v:argf means restart happened.
+      -- TODO(justinmk): add `v:startreason`, `v:starttime`
+      local _, argf = s:request('nvim_eval', 'v:argf')
+      ok(vim.tbl_count(argf) == (exp and 0 or 1), exp and 'empty v:argf' or 'nonempty v:argf', argf)
+    end)
+  end
+
   it('validation', function()
     eq('Vim(restart):E481: No range allowed: :1restart', t.pcall_err(n.command, ':1restart'))
+  end)
+
+  it('ZR', function()
+    -- Just exercise ZR, don't need to test all :restart functionality here.
+    t.skip(is_os('win'), 'FIXME: --listen not preserved by :restart on Windows #38539')
+    local server_pipe = new_pipename()
+    local server_session
+    finally(function()
+      if server_session and not server_session.closed then
+        server_session:close()
+      end
+    end)
+    local screen = tt.setup_child_nvim({
+      '-u',
+      'NONE',
+      '-i',
+      'NONE',
+      '--listen',
+      server_pipe,
+      '--cmd',
+      'set notermguicolors',
+      '--',
+      'file1.txt', -- XXX: see comment in assert_restarted()
+    }, {
+      env = vim.tbl_extend('force', env_notermguicolors, {
+        -- Ignore logs, because assert_restarted may log "connection refused" while it retries.
+        NVIM_LOG_FILE = testlog,
+      }),
+    })
+    finally(function()
+      os.remove(testlog)
+    end)
+    screen:expect({ any = 'file1%.txt' })
+
+    server_session = n.connect(server_pipe)
+    assert_restarted(false, server_session, server_pipe)
+
+    -- ZR on modified buffer fails with E37.
+    tt.feed_data('ifoo\027')
+    tt.feed_data('ZR')
+    screen:expect({ any = 'E37:' })
+
+    -- [count]ZR discards unsaved changes.
+    tt.feed_data('1ZR')
+    screen:expect({ any = vim.pesc('[No Name]') })
+    assert_restarted(true, server_session, server_pipe)
   end)
 
   it('works', function()
@@ -254,11 +317,15 @@ describe('TUI :restart', function()
     local server_session = n.connect(server_pipe)
     local _, server_pid = server_session:request('nvim_call_function', 'getpid', {})
     local function assert_new_pid()
-      if is_os('win') then
-        return -- FIXME
-      end
       server_session:close()
-      server_session = n.connect(server_pipe)
+      -- On Windows, --listen address is restored async (after old server exits).
+      if is_os('win') then
+        retry(nil, 5000, function()
+          server_session = n.connect(server_pipe)
+        end)
+      else
+        server_session = n.connect(server_pipe)
+      end
       local _, new_pid = server_session:request('nvim_call_function', 'getpid', {})
       t.neq(server_pid, new_pid)
       server_pid = new_pid
@@ -368,11 +435,13 @@ describe('TUI :restart', function()
     assert_new_pid()
     assert_termguicolors_and_no_gui_running()
 
-    -- No --listen conflict when server exit is delayed.
-    feed_data(':lua vim.schedule(function() vim.wait(100) end); vim.cmd.restart()\n')
-    screen:expect(s0)
-    assert_new_pid()
-    assert_termguicolors_and_no_gui_running()
+    if not is_os('win') then
+      -- No --listen conflict when server exit is delayed.
+      feed_data(':lua vim.schedule(function() vim.wait(100) end); vim.cmd.restart()\n')
+      screen:expect(s0)
+      assert_new_pid()
+      assert_termguicolors_and_no_gui_running()
+    end
 
     screen:try_resize(60, 6)
     screen:expect([[
@@ -1767,11 +1836,8 @@ describe('TUI', function()
   end)
 
   it('paste: terminal mode', function()
-    if is_ci('github') then
-      pending('tty-test complains about not owning the terminal -- actions/runner#241')
-    end
     child_exec_lua('vim.o.statusline="^^^^^^^"')
-    child_exec_lua('vim.cmd.terminal(...)', testprg('tty-test'))
+    child_exec_lua('vim.fn.jobstart({ ... }, { term = true })', testprg('tty-test'))
     feed_data('i')
     screen:expect([[
       tty ready                                         |
@@ -2277,9 +2343,7 @@ describe('TUI', function()
   end)
 
   it('forwards :term palette colors with termguicolors', function()
-    if is_ci('github') then
-      pending('tty-test complains about not owning the terminal -- actions/runner#241')
-    end
+    t.skip(is_os('win'), 'FIXME: wrong behavior on Windows')
     screen:set_rgb_cterm(true)
     screen:set_default_attr_ids({
       [1] = { { reverse = true }, { reverse = true } },
@@ -2313,7 +2377,7 @@ describe('TUI', function()
 
     child_exec_lua('vim.o.statusline="^^^^^^^"')
     child_exec_lua('vim.o.termguicolors=true')
-    child_exec_lua('vim.cmd.terminal(...)', testprg('tty-test'))
+    child_exec_lua('vim.fn.jobstart({ ... }, { term = true })', testprg('tty-test'))
     screen:expect([[
       ^tty ready                                         |
                                                         |*3
@@ -2562,6 +2626,7 @@ describe('TUI', function()
       vim.o.ruler = false
       vim.o.showcmd = false
       vim.o.termsync = false
+      vim.o.titlestring = '%t%( %M%) - Nvim'
       vim.o.title = true
     ]])
     retry(nil, nil, function()
@@ -2771,7 +2836,7 @@ describe('TUI', function()
       local buf = vim.api.nvim_get_current_buf()
       _G.urls = {}
       vim.api.nvim_create_autocmd('TermRequest', {
-        buffer = buf,
+        buf = buf,
         callback = function(ev)
           local req = ev.data.sequence
           if not req then
@@ -2820,7 +2885,7 @@ describe('TUI', function()
         end,
       })
       vim.api.nvim_create_autocmd('InsertEnter', {
-        buffer = 0,
+        buf = 0,
         callback = function()
           _G.result = vim.wait(3000, function()
             local expected = '\027P1+r5463'
@@ -3212,6 +3277,42 @@ describe('TUI', function()
     -- Wait for the statusline to redraw to confirm that the TUI lives and ASAN is happy.
     feed_data(':set columns=99|set stl=redrawn%m\n')
     screen:expect({ any = 'redrawn%[%+%]' })
+  end)
+
+  it('missing DSR response does not lead to hit-enter prompt #38877', function()
+    local child_server = n.new_pipename()
+    exec_lua('vim.uv.os_unsetenv("NVIM_TEST")')
+    local job = fn.jobstart({ nvim_prog, '--clean', '--listen', child_server }, {
+      -- Use pty = true for a PTY without a terminal, so that there is no DSR response.
+      pty = true,
+      env = {
+        VIMRUNTIME = os.getenv('VIMRUNTIME'),
+        COLORTERM = 'xterm-256color',
+        NVIM_LOG_FILE = testlog,
+      },
+    })
+    finally(function()
+      exec_lua(function()
+        vim.fn.jobstop(job)
+        vim.fn.jobwait({ job }, 5000)
+      end)
+      os.remove(testlog)
+    end)
+    retry(nil, nil, function()
+      t.neq(nil, vim.uv.fs_stat(child_server))
+    end)
+    local child_session = n.connect(child_server)
+    local expected_msg =
+      'defaults.lua: Did not detect DSR response from terminal. This results in a slower startup time.'
+    retry(nil, 4000, function()
+      eq({ true, { mode = 'n', blocking = false } }, { child_session:request('nvim_get_mode') })
+      if not is_os('win') then -- ConPTY provides DSR response on Windows?
+        eq(
+          { true, { output = expected_msg } },
+          { child_session:request('nvim_exec2', 'messages', { output = true }) }
+        )
+      end
+    end)
   end)
 end)
 
@@ -4428,6 +4529,7 @@ describe('TUI client', function()
       pending('N/A: missing LuaJIT FFI')
     end
 
+    server:request('nvim_set_option_value', 'titlestring', '%t%( %M%) - Nvim', {})
     local bufname = api.nvim_buf_get_name(0)
     local old_title = api.nvim_buf_get_var(0, 'term_title')
     if not is_os('win') then

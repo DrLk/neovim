@@ -4100,7 +4100,7 @@ M.funcs = {
     args = 1,
     base = 1,
     desc = [=[
-      Returns the last modification time of the given file {fname}.
+      Returns the last modification time ("mtime") of file {fname}.
       The value is measured as seconds since 1st Jan 1970, and may
       be passed to |strftime()|.  See also
       |localtime()| and |strftime()|.
@@ -8749,7 +8749,7 @@ M.funcs = {
       {func} is called for every item in {object}, which can be a
       |String|, |List| or a |Blob|.  {func} is called with two
       arguments: the result so far and current item.  After
-      processing all items the result is returned.
+      processing all items the result is returned. *E1132*
 
       {initial} is the initial result.  When omitted, the first item
       in {object} is used and {func} is first called for the second

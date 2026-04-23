@@ -138,7 +138,9 @@
 ---- On secondary machine:
 ---     - Pull from the server.
 ---     - |:restart|. New plugins (not present locally, but present in the lockfile)
----       are installed at proper revision.
+---       are installed at proper revision. If some installation has failed but
+---       you know it should not (like due to bad Internet connection),
+---       revert |vim.pack-lockfile| and |:restart| again.
 ---     - `vim.pack.update(nil, { target = 'lockfile' })`. Read and confirm.
 ---     - Manually delete outdated plugins (present locally, but were not present
 ---       in the lockfile prior to restart) with `vim.pack.del( { 'plugin' })`.
@@ -165,13 +167,15 @@
 ---- [PackChangedPre]() - before trying to change plugin's state.
 ---- [PackChanged]() - after plugin's state has changed.
 ---
----Each event populates the following |event-data| fields:
+---The |event-data| has these keys (type: `vim.event.packchanged.data`):
 ---- `active` - whether plugin was added via |vim.pack.add()| to current session.
 ---- `kind` - one of "install" (install on disk; before loading),
 ---  "update" (update already installed plugin; might be not loaded),
 ---  "delete" (delete from disk).
 ---- `spec` - plugin's specification with defaults made explicit.
 ---- `path` - full path to plugin's directory.
+---
+---See `vim.event.packchanged.data` and `vim.event.packchangedpre.data`.
 ---
 --- These events can be used to execute plugin hooks. For example:
 ---```lua
@@ -664,11 +668,14 @@ local function checkout(p, timestamp, skip_stash)
   infer_revisions(p)
 
   if not skip_stash then
-    local stash_cmd = { 'stash', '--quiet' }
+    local stash_cmd = { 'stash' }
     if git_version > vim.version.parse('2.13') then
+      -- Use 'push' to avoid a 'stash -m' bug in versions prior to git v2.26
+      stash_cmd[#stash_cmd + 1] = 'push'
       stash_cmd[#stash_cmd + 1] = '--message'
       stash_cmd[#stash_cmd + 1] = ('vim.pack: %s Stash before checkout'):format(timestamp)
     end
+    stash_cmd[#stash_cmd + 1] = '--quiet'
     git_cmd(stash_cmd, p.path)
   end
 
@@ -1155,7 +1162,7 @@ local function show_confirm_buf(lines, on_finish)
     delete_buffer()
   end
   -- - Use `nested` to allow other events (useful for statuslines)
-  api.nvim_create_autocmd('BufWriteCmd', { buffer = bufnr, nested = true, callback = finish })
+  api.nvim_create_autocmd('BufWriteCmd', { buf = bufnr, nested = true, callback = finish })
 
   -- Define action to cancel confirm
   --- @type integer

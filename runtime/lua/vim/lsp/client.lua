@@ -51,10 +51,10 @@ local all_clients = {}
 ---
 --- Command `string[]` that launches the language server (treated as in |jobstart()|, must be
 --- absolute or on `$PATH`, shell constructs like "~" are not expanded), or function that creates an
---- RPC client. Function receives a `dispatchers` table and the resolved `config`, and must return
---- a table with member functions `request`, `notify`, `is_closing` and `terminate`.
---- See |vim.lsp.rpc.request()|, |vim.lsp.rpc.notify()|.
---- For TCP there is a builtin RPC client factory: |vim.lsp.rpc.connect()|
+--- RPC client (or an in-process |lsp-server|). Function receives a `dispatchers` table and the
+--- resolved `config`, and must return an object in the form of |vim.lsp.rpc.PublicClient|.
+--- - See |vim.lsp.rpc.request()| |vim.lsp.rpc.notify()|
+--- - For TCP there is a builtin RPC client factory: |vim.lsp.rpc.connect()|
 --- @field cmd string[]|fun(dispatchers: vim.lsp.rpc.Dispatchers, config: vim.lsp.ClientConfig): vim.lsp.rpc.PublicClient
 ---
 --- Directory to launch the `cmd` process. Not related to `root_dir`.
@@ -701,7 +701,7 @@ function Client:_process_request(id, req_type, bufnr, method)
   self.requests[id] = req_type ~= 'complete' and request or nil
 
   api.nvim_exec_autocmds('LspRequest', {
-    buffer = api.nvim_buf_is_valid(bufnr) and bufnr or nil,
+    buf = api.nvim_buf_is_valid(bufnr) and bufnr or nil,
     modeline = false,
     data = { client_id = self.id, request_id = id, request = request },
   })
@@ -1071,17 +1071,17 @@ end
 --- Execute a lsp command, either via client command function (if available)
 --- or via workspace/executeCommand (if supported by the server)
 ---
---- @param command lsp.Command
+--- @param cmd lsp.Command
 --- @param context? {bufnr?: integer}
 --- @param handler? lsp.Handler only called if a server command
-function Client:exec_cmd(command, context, handler)
+function Client:exec_cmd(cmd, context, handler)
   context = vim.deepcopy(context or {}, true) --[[@as lsp.HandlerContext]]
   context.bufnr = vim._resolve_bufnr(context.bufnr)
   context.client_id = self.id
-  local cmdname = command.command
+  local cmdname = cmd.command
   local fn = self.commands[cmdname] or lsp.commands[cmdname]
   if fn then
-    fn(command, context)
+    fn(cmd, context)
     return
   end
 
@@ -1099,12 +1099,12 @@ function Client:exec_cmd(command, context, handler)
     )
     return
   end
-  -- Not using command directly to exclude extra properties,
+  -- Not using cmd directly to exclude extra properties,
   -- see https://github.com/python-lsp/python-lsp-server/issues/146
   --- @type lsp.ExecuteCommandParams
   local params = {
     command = cmdname,
-    arguments = command.arguments,
+    arguments = cmd.arguments,
   }
   self:request('workspace/executeCommand', params, handler, context.bufnr)
 end
@@ -1150,7 +1150,7 @@ function Client:on_attach(bufnr)
   lsp._set_defaults(self, bufnr)
 
   api.nvim_exec_autocmds('LspAttach', {
-    buffer = bufnr,
+    buf = bufnr,
     modeline = false,
     data = { client_id = self.id },
   })
@@ -1333,7 +1333,7 @@ end
 function Client:_on_detach(bufnr)
   if self.attached_buffers[bufnr] and api.nvim_buf_is_valid(bufnr) then
     api.nvim_exec_autocmds('LspDetach', {
-      buffer = bufnr,
+      buf = bufnr,
       modeline = false,
       data = { client_id = self.id },
     })

@@ -147,7 +147,7 @@ endif()
 # version string, else they are combined with the result of `git describe`.
 set(NVIM_VERSION_MAJOR 0)
 set(NVIM_VERSION_MINOR 12)
-set(NVIM_VERSION_PATCH 1)
+set(NVIM_VERSION_PATCH 2)
 set(NVIM_VERSION_PRERELEASE "") # for package maintainers
 
 # API level
@@ -211,14 +211,18 @@ if(COMPILE_LUA AND NOT WIN32)
     foreach(CURRENT_LUAC_PRG luac5.1 luac)
       find_program(_CHECK_LUAC_PRG ${CURRENT_LUAC_PRG})
       if(_CHECK_LUAC_PRG)
-        set(LUAC_PRG "${_CHECK_LUAC_PRG} -s -o - %s" CACHE STRING "Format for compiling to Lua bytecode")
+        # Escape "%" for string.format() (in gen_char_blob.lua). #39271
+        string(REPLACE "%" "%%" _LUAC_PRG_ESCAPED "${_CHECK_LUAC_PRG}")
+        set(LUAC_PRG "${_LUAC_PRG_ESCAPED} -s -o - %q" CACHE STRING "Format for compiling to Lua bytecode")
         break()
       endif()
     endforeach()
   elseif(LUA_PRG MATCHES "luajit")
     check_lua_module(${LUA_PRG} "jit.bcsave" LUAJIT_HAS_JIT_BCSAVE)
     if(LUAJIT_HAS_JIT_BCSAVE)
-      set(LUAC_PRG "${LUA_PRG} -b -s %s -" CACHE STRING "Format for compiling to Lua bytecode")
+      # Escape "%" for string.format() (in gen_char_blob.lua). #39271
+      string(REPLACE "%" "%%" _LUA_PRG_ESCAPED "${LUA_PRG}")
+      set(LUAC_PRG "${_LUA_PRG_ESCAPED} -b -s %q -" CACHE STRING "Format for compiling to Lua bytecode")
     endif()
   endif()
 endif()
@@ -242,15 +246,6 @@ mark_as_advanced(TS_QUERY_LS_PRG)
 set(STYLUA_DIRS runtime scripts src test contrib)
 
 add_glob_target(
-  TARGET lintlua-luacheck
-  COMMAND $<TARGET_FILE:nvim_bin>
-  FLAGS -ll ${PROJECT_SOURCE_DIR}/test/lua_runner.lua ${CMAKE_BINARY_DIR}/usr/share/lua/5.1 luacheck -q
-  GLOB_DIRS runtime scripts src test
-  GLOB_PAT *.lua
-  TOUCH_STRATEGY PER_DIR)
-add_dependencies(lintlua-luacheck lua_dev_deps)
-
-add_glob_target(
   TARGET lintlua-stylua
   COMMAND ${STYLUA_PRG}
   FLAGS --color=always --check --respect-ignores
@@ -269,7 +264,7 @@ add_custom_target(lintlua-stylua2
 add_dependencies(lintlua-stylua lintlua-stylua2)
 
 add_custom_target(lintlua)
-add_dependencies(lintlua lintlua-luacheck lintlua-stylua)
+add_dependencies(lintlua lintlua-stylua)
 
 add_glob_target(
   TARGET lintsh
@@ -294,6 +289,11 @@ add_dependencies(lintquery lintquery-compilation lintquery-format)
 add_custom_target(lintcommit
   COMMAND $<TARGET_FILE:nvim_bin> --clean -l ${PROJECT_SOURCE_DIR}/scripts/lintcommit.lua main)
 add_dependencies(lintcommit nvim_bin)
+
+add_custom_target(linterrcodes
+  COMMAND $<TARGET_FILE:nvim_bin> --clean -l ${PROJECT_SOURCE_DIR}/scripts/linterrcodes.lua
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+add_dependencies(linterrcodes nvim_bin)
 
 add_custom_target(lint)
 add_dependencies(lint lintc lintlua lintsh lintquery)
@@ -352,21 +352,6 @@ ExternalProject_Add(uncrustify
     -D CMAKE_SKIP_RPATH=true
   EXCLUDE_FROM_ALL TRUE
   ${EXTERNALPROJECT_OPTIONS})
-
-option(USE_BUNDLED_BUSTED "Use bundled busted" ON)
-if(USE_BUNDLED_BUSTED)
-  get_externalproject_options(lua_dev_deps ${DEPS_IGNORE_SHA})
-  ExternalProject_Add(lua_dev_deps
-    DOWNLOAD_DIR ${DEPS_DOWNLOAD_DIR}/lua_dev_deps
-    SOURCE_DIR ${DEPS_SHARE_DIR}
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    INSTALL_COMMAND ""
-    EXCLUDE_FROM_ALL TRUE
-    ${EXTERNALPROJECT_OPTIONS})
-else()
-  add_custom_target(lua_dev_deps)
-endif()
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch")
   set(LUALS_ARCH arm64)

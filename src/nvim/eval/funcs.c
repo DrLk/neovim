@@ -158,7 +158,6 @@ PRAGMA_DIAG_PUSH_IGNORE_IMPLICIT_FALLTHROUGH
 PRAGMA_DIAG_POP
 PRAGMA_DIAG_POP
 
-static const char *e_invalwindow = N_("E957: Invalid window number");
 static const char e_invalid_submatch_number_nr[]
   = N_("E935: Invalid submatch number: %d");
 static const char e_string_list_or_blob_required[]
@@ -579,7 +578,7 @@ static void f_chanclose(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 
   ChannelPart part = kChannelPartAll;
   if (argvars[1].v_type == VAR_STRING) {
-    char *stream = argvars[1].vval.v_string;
+    const char *stream = tv_get_string(&argvars[1]);
     if (!strcmp(stream, "stdin")) {
       part = kChannelPartStdin;
     } else if (!strcmp(stream, "stdout")) {

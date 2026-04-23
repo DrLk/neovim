@@ -17,6 +17,7 @@
 #include "nvim/api/private/dispatch.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/api/ui.h"
+#include "nvim/api/vim.h"
 #include "nvim/api/vimscript.h"
 #include "nvim/arglist.h"
 #include "nvim/ascii_defs.h"
@@ -89,6 +90,9 @@
 #include "nvim/os/input.h"
 #include "nvim/os/os.h"
 #include "nvim/os/os_defs.h"
+#ifdef MSWIN
+# include "nvim/os/os_win_console.h"
+#endif
 #include "nvim/os/shell.h"
 #include "nvim/path.h"
 #include "nvim/plines.h"
@@ -4362,14 +4366,14 @@ int getargopt(exarg_T *eap)
   }
 
   // ":read ++edit file"
-  if (strncmp(arg, "edit", 4) == 0) {
+  if (strncmp(arg, "edit", 4) == 0 && !ASCII_ISALPHA(arg[4])) {
     eap->read_edit = true;
     eap->arg = skipwhite(arg + 4);
     return OK;
   }
 
   // ":write ++p foo/bar/file
-  if (strncmp(arg, "p", 1) == 0) {
+  if (arg[0] == 'p' && !ASCII_ISALPHA(arg[1])) {
     eap->mkdir_p = true;
     eap->arg = skipwhite(arg + 1);
     return OK;
@@ -4973,8 +4977,10 @@ static void ex_restart(exarg_T *eap)
   char **argv = xcalloc((size_t)argc + 3, sizeof(char *));
   size_t i = 0;
   const char *listen_arg = NULL;
-#ifdef MSWIN  // FIXME: --listen doesn't work on Windows and needs to be dropped
-# define HANDLE_LISTEN_ADDR li = next_li; continue
+#ifdef MSWIN
+  // On Windows, don't pass --listen to new server (named pipe can't be reused immediately).
+  // Instead pass the address via RPC, and new server will rebind to it after startup.
+# define HANDLE_LISTEN_ADDR listen_arg = addr; li = next_li; continue
 #else
 # define HANDLE_LISTEN_ADDR listen_arg = addr
 #endif
@@ -5016,11 +5022,34 @@ static void ex_restart(exarg_T *eap)
   });
 #undef HANDLE_LISTEN_ADDR
 
-  bool server_stopped = false;
-  if (listen_arg != NULL) {
-    // Stop listening on the --listen address so that the new server can listen.
-    server_stopped = server_stop(listen_arg, true);
+#ifdef MSWIN
+  // On Windows, --listen is omitted from child argv because the named pipe can't be reused immediately.
+  // Recover the canonical address from the Lua module state (set by the previous rebind_old_addr_after_restart() call),
+  // and keep the current listener alive (new server reclaims it).
+  char *listen_arg_alloc = NULL;
+  if (listen_arg == NULL) {
+    Error lua_err = ERROR_INIT;
+    Object rv = NLUA_EXEC_STATIC("return require('vim._core.server').restart_canonical_addr",
+                                 (Array)ARRAY_DICT_INIT, kRetObject, NULL, &lua_err);
+    if (!ERROR_SET(&lua_err) && rv.type == kObjectTypeString && rv.data.string.size > 0) {
+      listen_arg_alloc = xstrdup(rv.data.string.data);
+      listen_arg = listen_arg_alloc;
+    }
+    api_free_object(rv);
+    api_clear_error(&lua_err);
   }
+  bool server_stopped = false;
+#else
+  // Stop listening on the --listen address so that the new server can listen.
+  bool server_stopped = listen_arg ? server_stop(listen_arg, true) : false;
+#endif
+
+#ifdef MSWIN
+  bool restart_alloc_console_env = false;
+  if (os_setenv("__NVIM_RESTART_ALLOC_CONSOLE", "1", 1) == 0) {
+    restart_alloc_console_env = true;
+  }
+#endif
 
   CallbackReader on_err = CALLBACK_READER_INIT;
 #ifdef MSWIN
@@ -5037,6 +5066,11 @@ static void ex_restart(exarg_T *eap)
                                        CALLBACK_READER_INIT, on_err, CALLBACK_NONE,
                                        false, true, true, detach, kChannelStdinPipe,
                                        NULL, 0, 0, NULL, &exit_status);
+#ifdef MSWIN
+  if (restart_alloc_console_env) {
+    os_unsetenv("__NVIM_RESTART_ALLOC_CONSOLE");
+  }
+#endif
   if (!channel) {
     emsg("cannot create a channel job");
     goto fail_1;
@@ -5070,7 +5104,8 @@ static void ex_restart(exarg_T *eap)
     result_mem = NULL;
   }
 
-  // Get new server's listen address.
+  // Get the new server's initial listen address. On Windows this is the
+  // temporary bootstrap address that UIs should reconnect to first.
   MAXSIZE_TEMP_ARRAY(servername_args, 1);
   ADD_C(servername_args, CSTR_AS_OBJ("servername"));
   Object result = rpc_send_call(channel->id, "nvim_get_vvar", servername_args, &result_mem, &err);
@@ -5084,6 +5119,27 @@ static void ex_restart(exarg_T *eap)
   char *listen_addr = xmemdupz(result.data.string.data, result.data.string.size);
   arena_mem_free(result_mem);
   result_mem = NULL;
+
+#ifdef MSWIN
+  if (listen_arg != NULL) {
+    // Tell the new server to reclaim the canonical --listen address once the old listener exits,
+    // then retire the bootstrap address after all UIs have reattached (or timeout).
+    MAXSIZE_TEMP_ARRAY(lua_args, 2);
+    ADD_C(lua_args,
+          CSTR_AS_OBJ("return require('vim._core.server').rebind_old_addr_after_restart(...)"));
+    MAXSIZE_TEMP_ARRAY(handoff_params, 3);
+    ADD_C(handoff_params, CSTR_AS_OBJ(listen_arg));
+    ADD_C(handoff_params, CSTR_AS_OBJ(listen_addr));
+    ADD_C(handoff_params, INTEGER_OBJ((Integer)ui_active()));
+    ADD_C(lua_args, ARRAY_OBJ(handoff_params));
+    rpc_send_call(channel->id, "nvim_exec_lua", lua_args, &result_mem, &err);
+    if (ERROR_SET(&err)) {
+      goto fail_2;
+    }
+    arena_mem_free(result_mem);
+    result_mem = NULL;
+  }
+#endif
 
   // Send restart event with new listen address to all UIs.
   ui_call_restart(cstr_as_string(listen_addr));
@@ -5136,6 +5192,9 @@ fail_1:
   if (server_stopped && server_start(listen_arg) != 0) {
     semsg("couldn't resume listening on %s", listen_arg);
   }
+#ifdef MSWIN
+  xfree(listen_arg_alloc);
+#endif
 }
 
 /// ":close": close current window, unless it is the last one
@@ -5917,7 +5976,10 @@ static void ex_detach(exarg_T *eap)
       emsg(e_invchan);
       return;
     }
-    chan->detach = true;  // Prevent self-exit on channel-close.
+    // Prevent self-exit on channel-close.
+    Error detach_err = ERROR_INIT;
+    nvim__chan_set_detach(chan->id, true, &detach_err);
+    api_clear_error(&detach_err);
 
     // Server-side UI detach. Doesn't close the channel.
     Error err2 = ERROR_INIT;
@@ -5937,6 +5999,12 @@ static void ex_detach(exarg_T *eap)
     }
     // XXX: Can't do this, channel_decref() is async...
     // assert(!find_channel(chan->id));
+
+#ifdef MSWIN
+    // After UI/channel detach, move this server off the parent's console so it
+    // survives terminal closure and still has working CONIN$/CONOUT$.
+    os_swap_to_hidden_console();
+#endif
 
     ILOG("detach current_ui=%" PRId64, chan->id);
   }
@@ -6234,7 +6302,7 @@ static void ex_syncbind(exarg_T *eap)
     FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
       if (wp->w_p_scb && wp->w_buffer) {
         linenr_T y = plines_m_win_fill(wp, 1, wp->w_buffer->b_ml.ml_line_count)
-                     - get_scrolloff_value(curwin);
+                     - (int)get_scrolloff_value(curwin);
         vtopline = MIN(vtopline, y);
       }
     }

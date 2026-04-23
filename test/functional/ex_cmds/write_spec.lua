@@ -124,6 +124,10 @@ describe(':write', function()
     eq(1, eval("filereadable('Xtest_write/write2/p_opt.txt')"))
     eq(1, eval("filereadable('Xtest_write/write2/p_opt2.txt')"))
     eq(0, eval("filereadable('Xtest_write/write3/p_opt3.txt')"))
+    t.matches(
+      'E474: Invalid argument',
+      pcall_err(command, 'read ++edits Xtest_write/write/p_opt.txt')
+    )
 
     eq('Vim(write):E32: No file name', pcall_err(command, 'write ++p Xotherdir/'))
     if not is_os('win') then
@@ -136,6 +140,11 @@ describe(':write', function()
         pcall_err(command, 'write ++p ./')
       )
     end
+
+    t.matches(
+      'E474: Invalid argument',
+      pcall_err(command, 'write ++patate Xtest_write/garbage.txt')
+    )
   end)
 
   it('errors out correctly', function()
@@ -173,7 +182,7 @@ describe(':write', function()
       eq(true, os.remove(fname_bak))
     end
     write_file(fname_bak, 'TTYX')
-    skip(is_os('win'), [[FIXME: exc_exec('write!') outputs 0 in Windows]])
+    skip(is_os('win'), [[FIXME: pcall_err(command, 'write!') outputs 0 in Windows]])
     vim.uv.fs_symlink(fname_bak .. ('/xxxxx'):rep(20), fname)
     eq("Vim(write):E166: Can't open linked file for writing", pcall_err(command, 'write!'))
   end)

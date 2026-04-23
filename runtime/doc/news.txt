@@ -65,6 +65,7 @@ LSP
 LUA
 
 • Renamed `vim.diff` to `vim.text.diff`.
+• Added `__eq` metamethod to |vim.VersionRange|.
 
 OPTIONS
 
@@ -183,6 +184,7 @@ EDITOR
   codeblocks via treesitter and executes them as Lua instead of Vimscript.
   (Or use `:{range}lua` to skip the detection.)
 • |:wall| with |++p| auto-creates missing parent directories.
+• |ZR| restarts Nvim (|:restart|).
 
 EVENTS
 
@@ -198,6 +200,8 @@ EVENTS
 • |SessionLoadPre| is triggered before loading a |Session| file.
 • |TabClosedPre| is triggered before closing a |tabpage|.
 • |TermRequest| event gained a `terminator` parameter.
+• |:delmarks| now triggers the |MarkSet| autocommand with line==col==0, same
+  as |nvim_buf_del_mark()|
 
 HIGHLIGHTS
 
@@ -299,6 +303,11 @@ LUA
 • |vim.json.encode()| `sort_keys` option sorts by key.
 • |vim.json.decode()| `skip_comments` option allows comments in JSON data.
 • EXPERIMENTAL: |vim.pos|, |vim.range| provide Position/Range abstraction.
+• |vim.filetype.inspect()| returns a copy of the internal tables used for
+  filetype detection.
+• Added `__eq` metamethod to |vim.VersionRange|. 2 distinct but representing
+the same range instances now compare equal.
+
 
 OPTIONS
 
@@ -394,6 +403,8 @@ TUI
   sequence.
 • The TUI now renders the SGR dim (faint), blink, conceal, and overline
   attributes.
+• The TUI will re-query the terminal's background color when resuming from
+  a suspended state, and Nvim will update 'background' accordingly.
 
 UI
 
@@ -453,6 +464,13 @@ These existing features changed their behavior.
   for input and output. This matters mostly for Linux where some command lines
   using "/dev/stdin" and similar would break as these special files can be
   reopened when backed by pipes but not when backed by socket pairs.
+• |:Open| with no arguments uses the current file.
+• The "buffer" key was renamed to "buf" in these functions (but the old name
+  "buffer" is still accepted, for backwards compatibility):
+  • |nvim_clear_autocmds()|
+  • |nvim_create_autocmd()|
+  • |nvim_exec_autocmds()|
+  • |nvim_get_autocmds()|
 
 ==============================================================================
 REMOVED FEATURES                                                 *news-removed*

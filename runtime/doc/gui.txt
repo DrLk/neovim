@@ -69,7 +69,7 @@ Restart Nvim
 
                                                 *:restart*
 :restart [+cmd] [command]
-                Restarts Nvim.
+                Restarts Nvim. See also |ZR|.
 
                 1. Stops Nvim using `:qall` (or |+cmd|, if given).
                 2. Starts a new Nvim server using the same |v:argv| (except
@@ -456,7 +456,7 @@ Creating New Menus                                      *creating-menus*
 
                                 *:me*  *:menu*  *:noreme*  *:noremenu*
                                 *E330* *E327* *E331* *E336* *E333*
-                                *E328* *E329* *E337* *E792*
+                                *E328* *E329* *E337* *E792* *E1310*
 To create a new menu item, use the ":menu" commands.  They are mostly like
 the ":map" set of commands (see |map-modes|), but the first argument is a menu
 item name, given as a path of menus and submenus with a '.' between them,
