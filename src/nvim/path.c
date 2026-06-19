@@ -678,7 +678,9 @@ static size_t do_path_expand(garray_T *gap, const char *path, size_t wildoff, in
       s = p + 1;
     } else if (path_end >= path + wildoff
 #ifdef MSWIN
-               && vim_strchr("*?[~", (uint8_t)(*path_end)) != NULL
+               // "~" not included here, we want to treat it as literal.
+               // The "~/" case is already handled in `gen_expand_wildcards`.
+               && vim_strchr("*?[", (uint8_t)(*path_end)) != NULL
 #else
                && (vim_strchr("*?[{~$", (uint8_t)(*path_end)) != NULL
                    || (!p_fic && (flags & EW_ICASE) && mb_isalpha(utf_ptr2char(path_end))))
@@ -890,6 +892,11 @@ static void expand_path_option(char *curdir, char *path_option, garray_T *gap)
 
   while (*path_option != NUL) {
     size_t buflen = copy_option_part(&path_option, buf, MAXPATHL, " ,");
+
+    // do not expand backticks, could have been set via a modeline
+    if (vim_strchr(buf, '`') != NULL) {
+      continue;
+    }
 
     if (buf[0] == '.' && (buf[1] == NUL || vim_ispathsep(buf[1]))) {
       // Relative to current buffer:

@@ -147,7 +147,7 @@ endif()
 # version string, else they are combined with the result of `git describe`.
 set(NVIM_VERSION_MAJOR 0)
 set(NVIM_VERSION_MINOR 12)
-set(NVIM_VERSION_PATCH 2)
+set(NVIM_VERSION_PATCH 3)
 set(NVIM_VERSION_PRERELEASE "") # for package maintainers
 
 # API level
@@ -206,30 +206,6 @@ mark_as_advanced(LUA_GEN_PRG)
 message(STATUS "Using Lua interpreter for code generation: ${LUA_GEN_PRG}")
 
 option(COMPILE_LUA "Pre-compile Lua sources into bytecode (for sources that are included in the binary)" ON)
-if(COMPILE_LUA AND NOT WIN32)
-  if(PREFER_LUA)
-    foreach(CURRENT_LUAC_PRG luac5.1 luac)
-      find_program(_CHECK_LUAC_PRG ${CURRENT_LUAC_PRG})
-      if(_CHECK_LUAC_PRG)
-        # Escape "%" for string.format() (in gen_char_blob.lua). #39271
-        string(REPLACE "%" "%%" _LUAC_PRG_ESCAPED "${_CHECK_LUAC_PRG}")
-        set(LUAC_PRG "${_LUAC_PRG_ESCAPED} -s -o - %q" CACHE STRING "Format for compiling to Lua bytecode")
-        break()
-      endif()
-    endforeach()
-  elseif(LUA_PRG MATCHES "luajit")
-    check_lua_module(${LUA_PRG} "jit.bcsave" LUAJIT_HAS_JIT_BCSAVE)
-    if(LUAJIT_HAS_JIT_BCSAVE)
-      # Escape "%" for string.format() (in gen_char_blob.lua). #39271
-      string(REPLACE "%" "%%" _LUA_PRG_ESCAPED "${LUA_PRG}")
-      set(LUAC_PRG "${_LUA_PRG_ESCAPED} -b -s %q -" CACHE STRING "Format for compiling to Lua bytecode")
-    endif()
-  endif()
-endif()
-mark_as_advanced(LUAC_PRG)
-if(LUAC_PRG)
-  message(STATUS "Using Lua compiler: ${LUAC_PRG}")
-endif()
 
 # Lint
 option(CI_LINT "Abort if lint programs not found" OFF)

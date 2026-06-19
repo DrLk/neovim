@@ -998,6 +998,10 @@ describe('LSP', function()
           eq(true, client:supports_method('textDocument/hover'))
           eq(false, client:supports_method('textDocument/definition'))
 
+          -- Self-mapped methods do not have a related server capability and should be assumed
+          -- to be supported.
+          eq(true, client:supports_method('shutdown'))
+
           -- unknown methods are assumed to be supported.
           eq(true, client:supports_method('unknown-method'))
         end,
@@ -3040,6 +3044,160 @@ describe('LSP', function()
       }
       eq(expected, result)
     end)
+
+    it('does not crash on error response with null id (JSON-RPC 2.0 parse error)', function()
+      local result = exec_lua(function()
+        local server = assert(vim.uv.new_tcp())
+        local accepted
+        local messages = {}
+        server:bind('127.0.0.1', 0)
+        server:listen(127, function(err)
+          assert(not err, err)
+          accepted = assert(vim.uv.new_tcp())
+          server:accept(accepted)
+          accepted:read_start(require('vim.lsp.rpc').create_read_loop(function(body)
+            local payload = vim.json.decode(body)
+            if payload.method then
+              table.insert(messages, payload.method)
+              if payload.method == 'initialize' then
+                -- Send a valid initialize response first
+                local msg = vim.json.encode({
+                  id = payload.id,
+                  jsonrpc = '2.0',
+                  result = {
+                    capabilities = {},
+                  },
+                })
+                accepted:write(
+                  table.concat({ 'Content-Length: ', tostring(#msg), '\r\n\r\n', msg })
+                )
+              elseif payload.method == 'initialized' then
+                -- Then send an error response with null id (parse error per JSON-RPC 2.0 §5)
+                local msg =
+                  '{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null}'
+                accepted:write(
+                  table.concat({ 'Content-Length: ', tostring(#msg), '\r\n\r\n', msg })
+                )
+              end
+            end
+          end, function()
+            if accepted and not accepted:is_closing() then
+              accepted:close()
+            end
+          end, function()
+            if accepted and not accepted:is_closing() then
+              accepted:close()
+            end
+          end))
+        end)
+        local port = server:getsockname().port
+        local on_error_called = false
+        local client_id = assert(vim.lsp.start({
+          name = 'null-id-test',
+          cmd = vim.lsp.rpc.connect('127.0.0.1', port),
+          on_error = function(_code, _err)
+            on_error_called = true
+          end,
+        }))
+        vim.lsp.get_client_by_id(client_id)
+        -- Wait for the initialized notification to be sent and the null-id error to be received
+        vim.wait(1000, function()
+          return #messages >= 2 and on_error_called
+        end)
+        if accepted and not accepted:is_closing() then
+          accepted:close()
+        end
+        server:close()
+        server:shutdown()
+        return {
+          messages = messages,
+          on_error_called = on_error_called,
+        }
+      end)
+      -- The key assertion: Neovim should not crash, and the error handler should be called
+      eq(true, result.on_error_called)
+      eq(true, #result.messages >= 2)
+    end)
+
+    it('does not misclassify server request with null id as notification', function()
+      local result = exec_lua(function()
+        local server = assert(vim.uv.new_tcp())
+        local accepted
+        local messages = {}
+        server:bind('127.0.0.1', 0)
+        server:listen(127, function(err)
+          assert(not err, err)
+          accepted = assert(vim.uv.new_tcp())
+          server:accept(accepted)
+          accepted:read_start(require('vim.lsp.rpc').create_read_loop(function(body)
+            local payload = vim.json.decode(body)
+            if payload.method then
+              table.insert(messages, payload.method)
+              if payload.method == 'initialize' then
+                local msg = vim.json.encode({
+                  id = payload.id,
+                  jsonrpc = '2.0',
+                  result = {
+                    capabilities = {},
+                  },
+                })
+                accepted:write(
+                  table.concat({ 'Content-Length: ', tostring(#msg), '\r\n\r\n', msg })
+                )
+              elseif payload.method == 'initialized' then
+                -- Send a server request with null id (invalid per JSON-RPC 2.0)
+                local msg =
+                  '{"jsonrpc":"2.0","method":"workspace/configuration","params":{"items":[]},"id":null}'
+                accepted:write(
+                  table.concat({ 'Content-Length: ', tostring(#msg), '\r\n\r\n', msg })
+                )
+              end
+            end
+          end, function()
+            if accepted and not accepted:is_closing() then
+              accepted:close()
+            end
+          end, function()
+            if accepted and not accepted:is_closing() then
+              accepted:close()
+            end
+          end))
+        end)
+        local port = server:getsockname().port
+        local on_error_called = false
+        local notification_received = false
+        local client_id = assert(vim.lsp.start({
+          name = 'null-id-request-test',
+          cmd = vim.lsp.rpc.connect('127.0.0.1', port),
+          on_error = function(_code, _err)
+            on_error_called = true
+          end,
+          handlers = {
+            ['workspace/configuration'] = function()
+              notification_received = true
+              return {}
+            end,
+          },
+        }))
+        vim.lsp.get_client_by_id(client_id)
+        vim.wait(1000, function()
+          return #messages >= 2 and (on_error_called or notification_received)
+        end)
+        if accepted and not accepted:is_closing() then
+          accepted:close()
+        end
+        server:close()
+        server:shutdown()
+        return {
+          messages = messages,
+          on_error_called = on_error_called,
+          notification_received = notification_received,
+        }
+      end)
+      -- Should be dispatched as an error, NOT silently handled as a notification
+      eq(true, result.on_error_called)
+      eq(false, result.notification_received)
+    end)
   end)
 
   describe('#dynamic vim.lsp._dynamic', function()
@@ -3261,10 +3419,42 @@ describe('LSP', function()
         }, { client_id = client_id })
         check('workspace/didChangeConfiguration', nil, 'section')
 
+        vim.lsp.handlers['client/registerCapability'](nil, {
+          registrations = {
+            {
+              id = 'unknown-method-id',
+              method = 'unknown-method',
+              registerOptions = {
+                some_opt = 'unknown-dummy-opt',
+              },
+            },
+          },
+        }, { client_id = client_id })
+        check('unknown-method', nil, 'some_opt')
+
+        check('unknown-method-2')
+        vim.lsp.handlers['client/registerCapability'](nil, {
+          registrations = {
+            {
+              id = 'unknown-method-2-id',
+              method = 'unknown-method-2',
+              registerOptions = {
+                documentSelector = {
+                  {
+                    pattern = root_dir .. '/*.foo',
+                  },
+                },
+              },
+            },
+          },
+        }, { client_id = client_id })
+        check('unknown-method-2')
+        check('unknown-method-2', tmpfile)
+
         return result
       end)
 
-      eq(21, #result)
+      eq(25, #result)
       eq({ method = 'textDocument/formatting', supported = false }, result[1])
       eq({ method = 'textDocument/formatting', supported = true, fname = tmpfile }, result[2])
       eq({ method = 'textDocument/rangeFormatting', supported = true }, result[3])
@@ -3299,6 +3489,14 @@ describe('LSP', function()
         { method = 'workspace/didChangeConfiguration', supported = true, cap = { 'dummy-section' } },
         result[21]
       )
+      eq({
+        method = 'unknown-method',
+        supported = true,
+        cap = { 'unknown-dummy-opt' },
+      }, result[22])
+      eq({ method = 'unknown-method-2', supported = true }, result[23])
+      eq({ method = 'unknown-method-2', supported = false }, result[24])
+      eq({ method = 'unknown-method-2', supported = true, fname = tmpfile }, result[25])
     end)
 
     it('identifies client dynamic registration capability', function()
@@ -4366,6 +4564,52 @@ describe('LSP', function()
       -- Set the filetype to 'bar', confirm a new LSP starts, and the old one goes away.
       exec_lua([[vim.bo.filetype = 'bar']])
       eq({ 0, 'foo', 1, 'bar' }, count_clients())
+    end)
+
+    it('sends didClose and didOpen when languageId changes', function()
+      exec_lua(create_server_definition)
+
+      local tmp1 = t.tmpname(true)
+
+      exec_lua(function()
+        _G.server = _G._create_server({
+          handlers = {
+            initialize = function(_, _, callback)
+              callback(nil, { capabilities = { textDocumentSync = { openClose = true } } })
+            end,
+          },
+        })
+        vim.lsp.config('foo', { cmd = _G.server.cmd, filetypes = { 'foo', 'bar' } })
+        vim.lsp.enable('foo')
+        vim.cmd.edit(tmp1)
+      end)
+
+      local function test_messages()
+        local opens = 0
+        local closes = 0
+        local msgs = exec_lua([[ return _G.server.messages ]])
+        local num_clients = exec_lua([[ return #vim.lsp.get_clients() ]])
+        for _, msg in ipairs(msgs) do
+          opens = opens + (msg.method == 'textDocument/didOpen' and 1 or 0)
+          closes = closes + (msg.method == 'textDocument/didClose' and 1 or 0)
+        end
+        return { opens, 'did_open', closes, 'did_close', num_clients, 'clients' }
+      end
+
+      -- No filetype on the buffer yet.
+      eq({ 0, 'did_open', 0, 'did_close', 0, 'clients' }, test_messages())
+
+      -- Set the filetype to 'foo', confirm didOpen is sent.
+      exec_lua([[vim.bo.filetype = 'foo']])
+      retry(nil, 1000, function()
+        eq({ 1, 'did_open', 0, 'did_close', 1, 'clients' }, test_messages())
+      end)
+
+      -- Set to anohter lsp-supported filetype 'bar', confirm didClose and didOpen are sent.
+      exec_lua([[vim.bo.filetype = 'bar']])
+      retry(nil, 1000, function()
+        eq({ 2, 'did_open', 1, 'did_close', 1, 'clients' }, test_messages())
+      end)
     end)
 
     it('validates config on attach', function()

@@ -407,6 +407,12 @@ void set_init_1(bool clean_arg)
   // Expand environment variables and things like "~" for the defaults.
   set_init_expand_env();
 
+  // Allow disabling ttyfast during startup to disable features such as
+  // automatic background detection over slow connections.
+  if (os_env_exists("NVIM_NOTTYFAST", false)) {
+    set_option_value_give_err(kOptTtyfast, BOOLEAN_OPTVAL(false), 0);
+  }
+
   save_file_ff(curbuf);         // Buffer is unchanged
 
   // Detect use of mlterm.
@@ -4007,7 +4013,7 @@ void set_option_direct_for(OptIndex opt_idx, OptVal value, int opt_flags, scid_T
   curbuf = save_curbuf;
 }
 
-/// Set the value of an option.
+/// Sets the value of an (non-tty) option.
 ///
 /// @param      opt_idx    Index in options[] table. Must not be kOptInvalid.
 /// @param[in]  value      Option value. If NIL_OPTVAL, the option value is cleared.

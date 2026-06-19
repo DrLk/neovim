@@ -442,6 +442,8 @@ describe('API', function()
       exec_lua('vim.ui_attach(1, { ext_messages = true }, function() end)')
       api.nvim_exec2('hi VisualNC', { output = true })
       eq('VisualNC       xxx cleared', api.nvim_exec2('hi VisualNC', { output = true }).output)
+      api.nvim_exec2('echon 1234567', { output = true })
+      eq('VisualNC       xxx cleared', api.nvim_exec2('hi VisualNC', { output = true }).output)
     end)
 
     it('captures multi-chunk err nvim_echo() #36883', function()
@@ -2977,9 +2979,10 @@ describe('API', function()
 
       -- :terminal with args + stopped process (shell-test).
       command('enew')
-      argv = { n.testprg('shell-test'), 'INTERACT' }
+      -- Use a process that doesn't read stdin, so PTY EOF can't race SIGHUP.
+      argv = { n.testprg('shell-test'), 'HOLD' }
       fn.jobstart(argv, { term = true })
-      screen:expect({ any = { vim.pesc('interact $') } })
+      screen:expect({ any = { vim.pesc('holding $') } })
       eq(1, eval('jobstop(&channel)'))
       eval('jobwait([&channel], 1000)') -- Wait.
       local expected3 = term_channel_info(5, 3, argv)
@@ -3666,6 +3669,23 @@ describe('API', function()
       eq(2, #val)
       eq(p(val[1]), vimruntime .. '/syntax/vim.vim')
       eq(p(val[2]), vimruntime .. '/ftplugin/vim.vim')
+    end)
+
+    it('finds files via an 8.3 filename path #25019', function()
+      skip(not is_os('win'), 'N/A: 8.3 filenames are only available on Windows')
+      local path = 'Xtest_runtime_path'
+      mkdir_p(('%s/subdir/lua'):format(path))
+      write_file(('%s/subdir/lua/foo.lua'):format(path), '')
+      finally(function()
+        rmdir(path)
+      end)
+      local path_with_shortname =
+        p(fn.system(('for %%I in ("%s") do @echo %%~sI'):format(path), ''):gsub('\n', ''))
+      skip(path == vim.fs.basename(path_with_shortname), 'N/A: 8.3 filenames are disabled')
+      exec_lua(('vim.opt.rtp:prepend("%s/*")'):format(path_with_shortname))
+      local val = api.nvim_get_runtime_file('lua/foo.lua', true)
+      eq(1, #val)
+      eq(('%s/subdir/lua/foo.lua'):format(path_with_shortname), val[1])
     end)
   end)
 

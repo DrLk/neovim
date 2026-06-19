@@ -6,6 +6,7 @@ local clear = n.clear
 local eq = t.eq
 local fn = n.fn
 local api = n.api
+local exec_lua = n.exec_lua
 local read_file = t.read_file
 local write_file = t.write_file
 local pcall_err = t.pcall_err
@@ -64,6 +65,13 @@ describe('writefile()', function()
     eq('\n', read_file(fname))
   end)
 
+  it('writes a null blob to a file', function()
+    eq(0, fn.writefile({ 'line1' }, fname, 'b'))
+    eq('line1', read_file(fname))
+    command(('call writefile(v:_null_blob, "%s")'):format(fname))
+    eq('', read_file(fname))
+  end)
+
   it('appends to a file', function()
     eq(nil, read_file(fname))
     eq(0, fn.writefile({ 'abc', 'def', 'ghi' }, fname))
@@ -97,6 +105,11 @@ describe('writefile()', function()
     eq('\0a\0b\0', read_file(fname))
     eq(0, fn.writefile({ 'a\n' }, fname, 'b'))
     eq('a\0', read_file(fname))
+  end)
+
+  it('writes Lua (binary) strings to a file', function()
+    eq(0, exec_lua([[return vim.fn.writefile('foo\0bar', ..., 'b')]], fname))
+    eq('foo\0bar', read_file(fname))
   end)
 
   it('shows correct file name when supplied numbers', function()

@@ -3,6 +3,7 @@ local validate = vim.validate
 local api = vim.api
 local list_extend = vim.list_extend
 local uv = vim.uv
+local isnil = require('vim._core.util').isnil
 
 local M = {}
 
@@ -291,7 +292,9 @@ local function get_line_byte_from_position(bufnr, position, position_encoding)
   return col
 end
 
---- Applies a list of text edits to a buffer.
+--- Applies a list of text edits to a buffer. Note: this mutates `text_edits` (sorts in-place and
+--- adds `_index` fields).
+---
 ---@param text_edits (lsp.TextEdit|lsp.AnnotatedTextEdit)[]
 ---@param bufnr integer Buffer id
 ---@param position_encoding 'utf-8'|'utf-16'|'utf-32'
@@ -320,7 +323,10 @@ function M.apply_text_edits(text_edits, bufnr, position_encoding, change_annotat
     -- Fix reversed range and indexing each text_edits
     for index, text_edit in ipairs(text_edits) do
       --- @cast text_edit lsp.TextEdit|{_index: integer}
-      text_edit._index = index
+      -- XXX: Preserve existing _index to avoid surprises if the same edit is reapplied. #39344
+      if text_edit._index == nil then
+        text_edit._index = index
+      end
 
       if
         text_edit.range.start.line > text_edit.range['end'].line
@@ -1227,11 +1233,11 @@ end
 ---@param contents string[] of lines to show in window
 ---@param opts? table with optional fields
 ---  - height    of floating window
+---  - max_height maximal height of floating window
+---  - max_width  maximal width of floating window
+---  - separator insert separator after code block
 ---  - width     of floating window
 ---  - wrap_at   character to wrap at for computing height
----  - max_width  maximal width of floating window
----  - max_height maximal height of floating window
----  - separator insert separator after code block
 ---@return table stripped content
 function M.stylize_markdown(bufnr, contents, opts)
   vim.deprecate('vim.lsp.util.stylize_markdown', nil, '0.14')
@@ -1538,7 +1544,7 @@ function M._make_floating_popup_size(contents, opts)
   end
 
   local _, border_width = get_border_size(opts)
-  local screen_width = api.nvim_win_get_width(0)
+  local screen_width = opts.relative == 'editor' and vim.o.columns or api.nvim_win_get_width(0)
   width = math.min(width, screen_width)
 
   -- make sure borders are always inside the screen
@@ -1963,13 +1969,13 @@ function M.symbols_to_items(symbols, bufnr, position_encoding)
       local end_lnum = range['end'].line + 1
       local end_col = get_line_byte_from_position(bufnr, range['end'], position_encoding) + 1
 
-      local is_deprecated = symbol.deprecated
-        or (symbol.tags and vim.tbl_contains(symbol.tags, protocol.SymbolTag.Deprecated))
+      local is_deprecated = not isnil(symbol.deprecated or nil)
+        or (not isnil(symbol.tags) and vim.tbl_contains(symbol.tags, protocol.SymbolTag.Deprecated))
       local text = string.format(
         '[%s] %s%s%s',
         kind,
         symbol.name,
-        symbol.containerName and ' in ' .. symbol.containerName or '',
+        not isnil(symbol.containerName) and ' in ' .. symbol.containerName or '',
         is_deprecated and ' (deprecated)' or ''
       )
 
